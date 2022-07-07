@@ -6,14 +6,14 @@
     </div>
     <div class="git-content" v-if="repoPath!==''">
       <div>
-        <h1>当前工作目录 ./</h1>
+        <h2>./ 当前工作目录</h2>
         <file class="file" v-for="f in files" :key="f.Name" :name="relativeWdPath(f.Path)"
               head-style="background: rgb(158 158 158 / 20%)" body-style="background: rgb(158 158 158 / 3%)">
           {{ f.Content }}
         </file>
       </div>
       <div>
-        <h1>暂存区 & HEAD指针 .git/</h1>
+        <h2>.git/ 暂存区 & HEAD指针</h2>
         <file :name="index.Name" v-if="index"
               head-style="background: #8bc34a8a" body-style="background: #8bc34a4f">
           {{ index.Content }}
@@ -24,7 +24,7 @@
         </file>
       </div>
       <div>
-        <h1>分支指针 .git/refs/heads/</h1>
+        <h2>.git/refs/heads/ 分支指针</h2>
         <file v-for="head in heads" :key="head.Name" :name="head.Name"
               :id="relativePath(head.Path)"
               head-style="background: rgb(255 235 59 / 60%)" body-style="background: rgb(255 235 59 / 30%)">
@@ -32,23 +32,26 @@
         </file>
       </div>
       <div>
-        <h1>对象仓库 .git/objects/</h1>
+        <h2>.git/objects/ 对象仓库</h2>
         <div>
-          <h2>commit</h2>
+          <h3>commit</h3>
           <file v-for="obj in commits" :key="obj.Hash" :name="obj.Hash" :id="obj.Hash"
                 head-style="background: rgb(255 193 7 / 75%)" body-style="background: rgb(255 193 7 / 30%)">
-            {{ obj.Content }}
+          <div v-html="renderCommit(obj)"></div>
           </file>
         </div>
         <div title="tree">
-          <h2>tree</h2>
+          <h3>tree</h3>
           <file v-for="obj in trees" :key="obj.Hash" :name="obj.Hash" :id="obj.Hash"
                 head-style="background: rgb(139 195 74 / 84%)" body-style="background: #8bc34a63">
-            {{ obj.Content }}
+              <div v-for="row, index in obj.Content.split('\n')" :key="index">
+                {{ void (it = row.split(/\s+/)) }}
+                {{ it[0] }} {{ it[1] }} <span :id="obj.Hash+':'+it[2]">{{ it[2] }}</span> {{ it[3] }}
+              </div>
           </file>
         </div>
         <div title="blob">
-          <h2>blob</h2>
+          <h3>blob</h3>
           <file v-for="obj in blobs" :key="obj.Hash" :name="obj.Hash" :id="obj.Hash"
                 head-style="background: rgb(33 150 243 / 50%)" body-style="background: rgb(33 150 243 / 19%)">
             {{ obj.Content }}
@@ -68,33 +71,30 @@ let plumbIns = jsPlumb.getInstance()
 let defaultConfig = {
   // 对应上述基本概念
   anchor: ['Left', 'Right', 'Top', 'Bottom', [0.3, 0, 0, -1], [0.7, 0, 0, -1], [0.3, 1, 0, 1], [0.7, 1, 0, 1]],
-  connector: ['StateMachine'],
+  connector: ['Bezier'],
   endpoint: 'Blank',
   // 添加样式
   paintStyle: {stroke: '#909399', strokeWidth: 2}, // connector
   // endpointStyle: { fill: 'lightgray', outlineStroke: 'darkgray', outlineWidth: 2 } // endpoint
   // 添加 overlay，如箭头
-  overlays: [['Arrow', {width: 8, length: 8, location: 1}]] // overlay
+  overlays: [['PlainArrow', {width: 8, length: 8, location: 1}]] // overlay
 }
-let gray = {
+let commit2parentArrow = {
   ...defaultConfig,
-  paintStyle: {stroke: '#909399', strokeWidth: 2, dashstyle: "2 4"}, // connector
+  paintStyle: {stroke: 'orange', strokeWidth: 1}, // connector
   connector: ['Straight'],
+}
+let commit2treeArrow = {
+  ...defaultConfig,
+  paintStyle: {stroke: 'green', strokeWidth: 1}, // connector
 }
 let red = {
   ...defaultConfig,
-  paintStyle: {stroke: 'red', strokeWidth: 2}, // connector
-  // connector: ['Straight'],
+  paintStyle: {stroke: 'red', strokeWidth: 1}, // connector
 }
-let orange = {
+let tree2blobArrow = {
   ...defaultConfig,
-  paintStyle: {stroke: 'orange', strokeWidth: 2}, // connector
-  // connector: ['Straight'],
-}
-let green = {
-  ...defaultConfig,
-  paintStyle: {stroke: 'green', strokeWidth: 2}, // connector
-  // connector: ['Straight'],
+  paintStyle: {stroke: 'red', strokeWidth: 1}, // connector
 }
 
 export default {
@@ -125,6 +125,33 @@ export default {
     }
   },
   methods: {
+    renderCommit(obj) {
+
+      // const index = content.indexOf('author')
+      const commitHash = obj.Hash
+      const rows = obj.Content.split('\n')
+
+      let str=''
+      let ok = false
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        if(ok) {
+          str += `${row}\n`
+          continue
+        }
+        if (row.startsWith('tree')) {
+          const treeHash = row.split(" ")[1]
+          str += `tree <span id="${commitHash}:${treeHash}">${treeHash}</span>\n`
+        } else if (row.startsWith('parent')) {
+          const parentHash = row.split(" ")[1]
+          str += `parent <span id="${commitHash}:${parentHash}">${parentHash}</span>\n`
+        } else {
+          ok = true
+          str += `${row}\n`
+        }
+      }
+      return str
+    },
     relativeWdPath(path) {
       return path.replace(this.repoPath + "/", "")
     },
@@ -181,29 +208,33 @@ export default {
                 .filter(line => line.startsWith("tree "))
                 .map(line => line.substring(5))
             for (let tree of trees) {
-              relations.push([commit.Hash, tree,orange])
+              relations.push([commit.Hash+":"+tree, tree, commit2treeArrow])
             }
 
             const parents = commit.Content.split('\n')
                 .filter(line => line.startsWith("parent "))
                 .map(line => line.substring(7))
             for (let parent of parents) {
-              relations.push([commit.Hash, parent, gray])
+              relations.push([commit.Hash+":"+parent, parent, commit2parentArrow])
             }
           }
           // trees
           for (let tree of this.trees) {
             const blobs = tree.Content.split('\n')
-                .filter(line => line.substr(7, 4) === 'blob')
-                .map(line => line.substr(12, 40))
+              .filter(line => line.substr(7, 4) === 'blob')
+              .map(line => line.substr(12, 40))
             for (let blob of blobs) {
-              relations.push([tree.Hash, blob, green])
+              var randomColor = Math.floor(Math.random() * 16777215).toString(16);
+              relations.push([tree.Hash + ":" + blob, blob, {
+                ...tree2blobArrow,
+                paintStyle: { stroke: '#' + randomColor, strokeWidth: 1 }, // connector
+              }])
             }
             const subTrees = tree.Content.split('\n')
-                .filter(line => line.substr(7, 4) === 'tree')
-                .map(line => line.substr(12, 40))
+              .filter(line => line.substr(7, 4) === 'tree')
+              .map(line => line.substr(12, 40))
             for (let subTree of subTrees) {
-              relations.push([tree.Hash, subTree, gray])
+              relations.push([tree.Hash, subTree, commit2parentArrow])
             }
           }
           // 绘制连线
